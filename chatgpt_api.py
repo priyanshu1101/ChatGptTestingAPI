@@ -65,7 +65,11 @@ class BrowserManager:
         options.add_argument('--lang=en-US,en;q=0.9')
         options.add_argument(f'--user-data-dir={BROWSER_DATA_DIR}')
         
-        self._driver = uc.Chrome(options=options, version_main=147)
+        try:
+            self._driver = uc.Chrome(options=options)
+        except Exception as e:
+            log.warning("Failed to start chrome without version_main (%s), trying with version_main=147...", e)
+            self._driver = uc.Chrome(options=options, version_main=147)
         log.info("Undetected-chromedriver started successfully")
 
     def stop_driver(self):
