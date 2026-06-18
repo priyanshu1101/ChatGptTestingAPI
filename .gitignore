@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+
+# Chrome User Profiles & Local locks
+.chrome_profile_uc/
+SingletonLock
+
+# OS files
+.DS_Store
+Thumbs.db
