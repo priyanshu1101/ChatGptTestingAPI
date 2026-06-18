@@ -9,6 +9,8 @@ import asyncio
 import logging
 import os
 import random
+import re
+import subprocess
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -43,6 +45,20 @@ MAX_RETRIES = 3
 BROWSER_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".chrome_profile_uc")
 
 
+def get_chrome_version_main() -> Optional[int]:
+    """Helper to detect Google Chrome's major version number dynamically."""
+    for binary in ['google-chrome', 'chrome', 'chromium-browser', 'chromium']:
+        try:
+            output = subprocess.check_output([binary, '--version'], stderr=subprocess.STDOUT)
+            version_str = output.decode('utf-8')
+            match = re.search(r'(?:Chrome|Chromium)\s+(\d+)', version_str, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+        except Exception:
+            continue
+    return None
+
+
 # --- Browser Manager ---------------------------------------------------------
 class BrowserManager:
     """
@@ -56,21 +72,45 @@ class BrowserManager:
     def start_driver(self):
         """Starts undetected-chromedriver synchronously (run in executor)."""
         log.info("Starting undetected-chromedriver (headless=new)...")
-        options = uc.ChromeOptions()
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--headless=new')  # Use modern stealth headless mode
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.7727.101 Safari/537.36')
-        options.add_argument('--lang=en-US,en;q=0.9')
-        options.add_argument(f'--user-data-dir={BROWSER_DATA_DIR}')
-        
+
+        def create_options():
+            opts = uc.ChromeOptions()
+            opts.add_argument('--no-sandbox')
+            opts.add_argument('--disable-dev-shm-usage')
+            opts.add_argument('--headless=new')  # Use modern stealth headless mode
+            opts.add_argument('--window-size=1920,1080')
+            opts.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.7727.101 Safari/537.36')
+            opts.add_argument('--lang=en-US,en;q=0.9')
+            opts.add_argument(f'--user-data-dir={BROWSER_DATA_DIR}')
+            return opts
+
+        chrome_version = get_chrome_version_main()
+
+        # Attempt 1: Try with dynamically detected version
+        if chrome_version:
+            log.info("Detected local Chrome major version: %s. Initiating driver...", chrome_version)
+            try:
+                self._driver = uc.Chrome(options=create_options(), version_main=chrome_version)
+                log.info("Undetected-chromedriver started successfully (using version %s)", chrome_version)
+                return
+            except Exception as e:
+                log.warning("Failed to start with detected version %s (%s). Trying auto-detection...", chrome_version, e)
+
+        # Attempt 2: Try without version_main parameter (let uc auto-detect)
         try:
-            self._driver = uc.Chrome(options=options)
+            self._driver = uc.Chrome(options=create_options())
+            log.info("Undetected-chromedriver started successfully (auto-detected)")
+            return
         except Exception as e:
-            log.warning("Failed to start chrome without version_main (%s), trying with version_main=147...", e)
-            self._driver = uc.Chrome(options=options, version_main=147)
-        log.info("Undetected-chromedriver started successfully")
+            log.warning("Failed to start chrome without version_main (%s). Trying fallback with version_main=147...", e)
+
+        # Attempt 3: Try with hardcoded fallback (version 147)
+        try:
+            self._driver = uc.Chrome(options=create_options(), version_main=147)
+            log.info("Undetected-chromedriver started successfully (fallback version 147)")
+        except Exception as e:
+            log.error("All driver start attempts failed: %s", e)
+            raise e
 
     def stop_driver(self):
         """Stops undetected-chromedriver synchronously."""
