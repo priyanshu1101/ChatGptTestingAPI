@@ -47,6 +47,9 @@ MAX_RETRIES = 3
 # Path for persistent browser profile
 BROWSER_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".chrome_profile_uc")
 
+# Lock to prevent filesystem race conditions when launching Chrome instances concurrently
+chrome_start_lock = asyncio.Lock()
+
 
 def get_chrome_version_main() -> Optional[int]:
     """Helper to detect Google Chrome's major version number dynamically."""
@@ -242,8 +245,12 @@ async def ask_single_browser(prompt: str, instance_id: str) -> str:
     driver = None
     try:
         loop = asyncio.get_running_loop()
-        # Start driver in executor
-        driver = await loop.run_in_executor(None, start_driver_sync, profile_dir)
+        # Acquire lock to start driver sequentially, preventing filesystem download race conditions
+        async with chrome_start_lock:
+            driver = await loop.run_in_executor(None, start_driver_sync, profile_dir)
+            # Add a small delay to let browser port binding settle before the next instance starts
+            await asyncio.sleep(0.5)
+
         # Execute the automation steps
         response_text = await loop.run_in_executor(None, do_ask_sync_instance, driver, prompt)
         return response_text
